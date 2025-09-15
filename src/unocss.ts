@@ -1,3 +1,5 @@
+import type { PresetWindTheme } from 'unocss'
+import { definePreset, entriesToCss } from 'unocss'
 import type { Plugin } from 'vite'
 
 export function UnoCSSApplet(): Plugin[] {
@@ -34,3 +36,56 @@ export function UnoCSSApplet(): Plugin[] {
     },
   ]
 }
+
+export const presetApplet = definePreset<object, PresetWindTheme>(() => {
+  return {
+    name: 'unocss-applet',
+    theme: {
+      preflightRoot: ['page,:before,:after', '::backdrop'],
+    },
+    preflights: [
+      {
+        layer: 'preflights',
+        getCSS: ({ theme }) => {
+          type CSSProperties = Record<string, string>
+          type CSSEntry = [string, CSSProperties]
+          type CSSEntires = CSSEntry[]
+
+          const getColor = (color: string) => {
+            const colorValue = theme.colors?.[color]
+
+            type Colors = typeof colorValue
+            const resolveColors = (value: Colors): string | undefined => {
+              if (typeof value === 'string') {
+                return value
+              }
+              return value ? resolveColors(value[700]) : undefined
+            }
+            return resolveColors(colorValue)
+          }
+
+          const cssEntries: CSSEntires = [
+            ['page', { height: '100%' }],
+            [
+              'view, image',
+              {
+                'border-style': 'solid',
+                'border-width': '0',
+                'border-color': getColor('light') ?? '#e5e7eb',
+                'box-sizing': 'border-box',
+              },
+            ],
+          ]
+
+          const resolveCSS = ([selector, properties]: CSSEntry) => {
+            const entries = Object.entries(properties)
+            const css = entriesToCss(entries)
+            return `${selector} {${css}}`
+          }
+
+          return cssEntries.map(resolveCSS).join('')
+        },
+      },
+    ],
+  }
+})
