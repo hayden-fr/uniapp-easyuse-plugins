@@ -87,5 +87,37 @@ export const presetApplet = definePreset<object, PresetWindTheme>(() => {
         },
       },
     ],
+    postprocess: [
+      (util) => {
+        // @see https://unocss.dev/presets/legacy-compat
+        // 小程序不支持一些新的 CSS 特性，需要使用 @unocss/preset-legacy-compat 进行转换
+        // 这里直接将功能复制了过来，源码：https://github.com/unocss/unocss/blob/main/packages-presets/preset-legacy-compat/src/index.ts
+        for (const entry of util.entries) {
+          let value = entry[1]
+          if (typeof value !== 'string') {
+            return
+          }
+
+          // 微信小程序不支持颜色函数的空白分隔符
+          value = value.replace(
+            /((?:rgb|hsl)a?)\(([^)]+)\)/g,
+            (_, fn: string, v: string) => {
+              const [rgb, alpha] = v.split(/\//g).map((i) => i.trim())
+              if (alpha && !fn.endsWith('a')) fn += 'a'
+
+              const parts = rgb.split(/,?\s+/).map((i) => i.trim())
+              if (alpha) parts.push(alpha)
+
+              return `${fn}(${parts.filter(Boolean).join(', ')})`
+            },
+          )
+
+          // 微信小程序不支持 oklch 和 oklab
+          value = value.replace(/\s*in (oklch|oklab)/g, '')
+
+          entry[1] = value
+        }
+      },
+    ],
   }
 })
