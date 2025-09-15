@@ -37,9 +37,9 @@ export function UnoCSSApplet(): Plugin[] {
   ]
 }
 
-export const presetApplet = definePreset<object, PresetWindTheme>(() => {
+const appletPreflights = definePreset<object, PresetWindTheme>(() => {
   return {
-    name: 'unocss-applet',
+    name: 'unocss-applet:preflights',
     theme: {
       preflightRoot: ['page,:before,:after', '::backdrop'],
     },
@@ -87,6 +87,12 @@ export const presetApplet = definePreset<object, PresetWindTheme>(() => {
         },
       },
     ],
+  }
+})
+
+const appletLegacyCompact = definePreset<object, PresetWindTheme>(() => {
+  return {
+    name: 'unocss-applet:legacy-compact',
     postprocess: [
       (util) => {
         // @see https://unocss.dev/presets/legacy-compat
@@ -119,5 +125,12 @@ export const presetApplet = definePreset<object, PresetWindTheme>(() => {
         }
       },
     ],
+  }
+})
+
+export const presetApplet = definePreset<object, PresetWindTheme>(() => {
+  return {
+    name: 'unocss-applet',
+    presets: [appletPreflights(), appletLegacyCompact()],
   }
 })
