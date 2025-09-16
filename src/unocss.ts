@@ -1,5 +1,5 @@
 import type { PresetWindTheme } from 'unocss'
-import { definePreset, entriesToCss } from 'unocss'
+import { definePreset, entriesToCss, escapeRegExp } from 'unocss'
 import type { Plugin } from 'vite'
 
 export function UnoCSSApplet(): Plugin[] {
@@ -128,9 +128,72 @@ const appletLegacyCompact = definePreset<object, PresetWindTheme>(() => {
   }
 })
 
-export const presetApplet = definePreset<object, PresetWindTheme>(() => {
+class AppletInvalidCharacterContext {
+  private invalidRegexp = /[~!@#$%^&*(){}[\]|\\:;"',.?\/]/
+
+  /**
+   * 过滤出带有无效字符的选择器
+   */
+  filterInValidCharacter(selectors: ArrayLike<string> | Set<string>) {
+    const filterPattern = new RegExp(this.invalidRegexp)
+    return Array.from(selectors).filter((selector) => {
+      return filterPattern.test(selector)
+    })
+  }
+
+  /**
+   * 将无效字符转换为受支持的类名字符
+   */
+  transformClassnames(selector: string) {
+    const legacyMap: Record<string, string> = { '#': 'hex_', '!': 'i_' }
+    const replacePattern = new RegExp(this.invalidRegexp, 'g')
+    return selector.replace(replacePattern, (match) => {
+      return match in legacyMap ? legacyMap[match] : '_'
+    })
+  }
+}
+
+const appletTransformerInvalidCharacter = definePreset(() => {
+  const ctx = new AppletInvalidCharacterContext()
+  return {
+    name: 'unocss-applet:transformer-invalid-character',
+    transformers: [
+      {
+        name: 'transformer-invalid-character',
+        enforce: 'pre',
+        transform: async (code, id, { uno }) => {
+          let token = code.toString()
+
+          const { matched } = await uno.generate(token, { preflights: false })
+          const replacements = ctx.filterInValidCharacter(matched)
+          for (let replace of replacements) {
+            let replaced = ctx.transformClassnames(replace)
+
+            // navigate 由专用的 variants 进行转化
+            replace = replace.replace(/^-+/, '')
+            replaced = replaced.replace(/^-+/, '')
+
+            // 将替换后的类名添加到快捷类名中
+            // 实现替换类名的映射关系
+            uno.config.shortcuts.push([replaced, replace, {}])
+            // 对源码进行全局替换
+            const escapeReplace = new RegExp(escapeRegExp(replace), 'g')
+            token = token.replace(escapeReplace, replaced)
+          }
+          code.overwrite(0, code.original.length, token)
+        },
+      },
+    ],
+  }
+})
+
+export const presetApplet = definePreset(() => {
   return {
     name: 'unocss-applet',
-    presets: [appletPreflights(), appletLegacyCompact()],
+    presets: [
+      appletPreflights(),
+      appletLegacyCompact(),
+      appletTransformerInvalidCharacter(),
+    ],
   }
 })
