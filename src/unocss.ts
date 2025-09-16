@@ -1,4 +1,4 @@
-import type { PresetWindTheme } from 'unocss'
+import type { DynamicShortcut, PresetWindTheme } from 'unocss'
 import { definePreset, entriesToCss, escapeRegExp } from 'unocss'
 import type { Plugin } from 'vite'
 
@@ -129,13 +129,14 @@ const appletLegacyCompact = definePreset<object, PresetWindTheme>(() => {
 })
 
 class AppletInvalidCharacterContext {
-  private invalidRegexp = /[~!@#$%^&*(){}[\]|\\:;"',.?\/]/
+  private invalidCharacters = '~!@#$%^&*(){}[]|\\:;"\',.?/'
 
   /**
    * 过滤出带有无效字符的选择器
    */
   filterInValidCharacter(selectors: ArrayLike<string> | Set<string>) {
-    const filterPattern = new RegExp(this.invalidRegexp)
+    const escapeInvalidCharacters = escapeRegExp(this.invalidCharacters)
+    const filterPattern = new RegExp(`[${escapeInvalidCharacters}]`)
     return Array.from(selectors).filter((selector) => {
       return filterPattern.test(selector)
     })
@@ -143,10 +144,15 @@ class AppletInvalidCharacterContext {
 
   /**
    * 将无效字符转换为受支持的类名字符
+   *
+   * @param selector 选择器
+   * @param escape 是否包含转义符，设置为 true 时，会将 \\[char] 视为一个整体进行转换
    */
-  transformClassnames(selector: string) {
+  transformClassnames(selector: string, escape?: boolean) {
     const legacyMap: Record<string, string> = { '#': 'hex_', '!': 'i_' }
-    const replacePattern = new RegExp(this.invalidRegexp, 'g')
+    const pattern = escapeRegExp(this.invalidCharacters)
+    const escapeCharacter = escape ? '\\\\' : ''
+    const replacePattern = new RegExp(`${escapeCharacter}[${pattern}]`, 'g')
     return selector.replace(replacePattern, (match) => {
       return match in legacyMap ? legacyMap[match] : '_'
     })
@@ -184,6 +190,49 @@ const appletTransformerInvalidCharacter = definePreset(() => {
         },
       },
     ],
+    postprocess: [
+      (util) => {
+        if (util.selector) {
+          // 这里的转换器只转换带有转义符号的字符，例如会将 \\. 转换成 _ 而不会将 . 转换成 _
+          // eg:
+          // 源码类名 group-hover/item:bg-red
+          // 被 transformer 转换后的选择器 .group\\/item:hover .group-hover_item_bg-red
+          // 使用了转码后字符进行转换后的选择器 .group_item:hover .group-hover_item_bg-red
+          util.selector = ctx.transformClassnames(util.selector, true)
+        }
+      },
+    ],
+  }
+})
+
+/**
+ * 对于 group peer 等变体选择器，当指定具体名称时，变体选择器中的 \/ 对小程序来说为非法字符。
+ * 添加一个 rule 和 shortcuts 将具名选择器视为一个 class 类名。
+ * 方便 appletTransformerInvalidCharacter 的 transformer 识别并进行转换。
+ * 在 postprocess 阶段对于具名选择器进行删除。
+ */
+const appletSpecialPseudoName = definePreset(() => {
+  const placeholder = '_'
+  const pseudoPrefix = ['group', 'peer', 'parent', 'previous']
+  const createPseudoShortcut = (pseudo: string): DynamicShortcut => {
+    return [new RegExp(`^${pseudo}\\/(.*)?$`), () => placeholder, {}]
+  }
+
+  return {
+    name: 'unocss-applet:pseudo-placeholder',
+    rules: [[placeholder, { content: '' }]],
+    shortcuts: pseudoPrefix.map((pseudo) => createPseudoShortcut(pseudo)),
+    postprocess: [
+      (util) => {
+        for (const pseudo of pseudoPrefix) {
+          const pattern = new RegExp(`^\.${pseudo}_(.*)?$`)
+          if (pattern.test(util.selector)) {
+            util.entries = []
+            break
+          }
+        }
+      },
+    ],
   }
 })
 
@@ -193,6 +242,7 @@ export const presetApplet = definePreset(() => {
     presets: [
       appletPreflights(),
       appletLegacyCompact(),
+      appletSpecialPseudoName(),
       appletTransformerInvalidCharacter(),
     ],
   }
